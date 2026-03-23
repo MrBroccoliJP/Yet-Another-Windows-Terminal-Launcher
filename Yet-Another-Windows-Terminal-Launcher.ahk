@@ -6,7 +6,7 @@
 
 ; @Ahk2Exe-SetName        Yet Another Windows Terminal Launcher
 ; @Ahk2Exe-SetDescription Keyboard shortcuts to launch Windows Terminal
-; @Ahk2Exe-SetVersion     1.0.0
+; @Ahk2Exe-SetVersion     1.1.0
 ; @Ahk2Exe-SetCopyright   Copyright (c) 2026, licensed under GPL v3
 ; @Ahk2Exe-SetCompanyName Joao Fernandes
 ; @Ahk2Exe-SetOrigFilename YetAnotherWindowsTerminalLauncher.exe
@@ -105,7 +105,7 @@ Install() {
         return
     }
 
-    ShowSuccessDialog()
+    ShowSuccessDialog(InstallPath)
 }
 
 Uninstall() {
@@ -132,8 +132,16 @@ Uninstall() {
     ExitApp()
 }
 
+LaunchInstalledAndExit(InstallPath) {
+    ; Use a bat to wait for this process to exit, then launch the installed copy
+    batPath := A_Temp "\launch_yawtl.bat"
+    batContent := "@echo off`r`ntimeout /t 1 /nobreak >nul`r`nstart `"`" `"" InstallPath "`"`r`ndel `"%~f0`""
+    FileOpen(batPath, "w").Write(batContent)
+    Run 'cmd.exe /c "' batPath '"',, "Hide"
+    ExitApp()
+}
+
 ; ============================================================
-;  GUI - Install Dialog
 ; ============================================================
 
 ShowInstallDialog() {
@@ -200,7 +208,7 @@ ShowInstallDialog() {
 ;  GUI - Success Dialog
 ; ============================================================
 
-ShowSuccessDialog() {
+ShowSuccessDialog(InstallPath) {
     g := Gui("+AlwaysOnTop -SysMenu", "Installed")
     g.BackColor := "0D1117"
     g.SetFont("s10 cE6EDF3", "Consolas")
@@ -238,8 +246,8 @@ ShowSuccessDialog() {
     MonitorGetWorkArea(, &ml, &mt, &mr, &mb)
     g.Move((mr - ml) // 2 - 190 + ml, (mb - mt) // 2 - 112 + mt)
 
-    btnOK.OnEvent("Click", (*) => g.Destroy())
-    g.OnEvent("Close",     (*) => g.Destroy())
+    btnOK.OnEvent("Click", (*) => (g.Destroy(), LaunchInstalledAndExit(InstallPath)))
+    g.OnEvent("Close",     (*) => (g.Destroy(), LaunchInstalledAndExit(InstallPath)))
 
     WinWaitClose g.Hwnd
 }
