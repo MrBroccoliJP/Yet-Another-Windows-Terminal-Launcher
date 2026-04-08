@@ -6,7 +6,7 @@
 
 ; @Ahk2Exe-SetName        Yet Another Windows Terminal Launcher
 ; @Ahk2Exe-SetDescription Keyboard shortcuts to launch Windows Terminal
-; @Ahk2Exe-SetVersion     1.1.1
+; @Ahk2Exe-SetVersion     1.1.2
 ; @Ahk2Exe-SetCopyright   Copyright (c) 2026, licensed under GPL v3
 ; @Ahk2Exe-SetCompanyName Joao Fernandes
 ; @Ahk2Exe-SetOrigFilename YetAnotherWindowsTerminalLauncher.exe
@@ -14,6 +14,7 @@
 
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#Warn
 
 ; ── Globals ──────────────────────────────────────────────────
 global AppName     := "YetAnotherWindowsTerminalLauncher"
@@ -31,8 +32,8 @@ A_TrayMenu.Delete()
 A_TrayMenu.Add("Yet Another Windows Terminal Launcher", (*) => 0)
 A_TrayMenu.Disable("Yet Another Windows Terminal Launcher")
 A_TrayMenu.Add()
-A_TrayMenu.Add("Launch Terminal`tCtrl+Alt+T",            (*) => LaunchNormal())
-A_TrayMenu.Add("Launch Terminal as Admin`tCtrl+Shift+T", (*) => LaunchElevated())
+A_TrayMenu.Add("Launch Terminal`tCtrl+Alt+T",                  (*) => LaunchNormal())
+A_TrayMenu.Add("Launch Terminal as Admin`tCtrl+Alt+Shift+T",   (*) => LaunchElevated())
 A_TrayMenu.Add()
 A_TrayMenu.Add("Uninstall && Exit", (*) => ShowUninstallDialog())
 A_TrayMenu.Add("Exit",              (*) => ExitApp())
@@ -58,16 +59,19 @@ return
 LaunchNormal() {
     try {
         Run "wt.exe"
-    } catch {
-        MsgBox "Could not find Windows Terminal.`nMake sure it is installed from the Microsoft Store.", "Error", "IconX"
+    } catch as e {
+        MsgBox "Could not find or launch Windows Terminal.`n`nMake sure Windows Terminal is installed.`n`n" e.Message, "Error", "IconX"
     }
 }
 
 LaunchElevated() {
     try {
-        Run "*RunAs wt.exe"
-    } catch {
-        MsgBox "Could not launch Windows Terminal as Administrator.", "Error", "IconX"
+        ; Using PowerShell Start-Process is more reliable than Run "*RunAs wt.exe"
+        ; on systems where the wt.exe execution alias behaves differently under UAC.
+        psCommand := "Start-Process -FilePath 'wt.exe' -Verb RunAs"
+        Run A_ComSpec ' /c powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "' psCommand '"',, "Hide"
+    } catch as e {
+        MsgBox "Could not launch Windows Terminal as Administrator.`n`n" e.Message, "Error", "IconX"
     }
 }
 
@@ -99,7 +103,9 @@ Install() {
     }
 
     try {
-        RegWrite InstallPath, "REG_SZ", RegKey, AppName
+        ; Quote the path in the Run key so paths with spaces/non-ASCII chars are safe.
+        quotedPath := Chr(34) InstallPath Chr(34)
+        RegWrite quotedPath, "REG_SZ", RegKey, AppName
     } catch as e {
         MsgBox "Failed to write to registry:`n" e.Message, "Install Error", "IconX"
         return
@@ -117,10 +123,13 @@ Uninstall() {
     }
 
     if (A_ScriptFullPath = InstallPath) {
-        batPath := A_Temp "\uninstall_wtl.bat"
-        batContent := "@echo off`r`ntimeout /t 2 /nobreak >nul`r`nrmdir /s /q `"" InstallDir "`"`r`ndel `"%~f0`""
-        FileOpen(batPath, "w", "cp0").Write(batContent)
-        Run 'cmd.exe /c "' batPath '"',, "Hide"
+        try {
+            ; Delay deletion so the current process can exit first.
+            ; Use PowerShell + -LiteralPath to avoid Unicode/cmd.exe batch issues.
+            psCommand := "Start-Sleep -Seconds 2; Remove-Item -LiteralPath '" StrReplace(InstallDir, "'", "''") "' -Recurse -Force"
+            Run A_ComSpec ' /c powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "' psCommand '"',, "Hide"
+        } catch {
+        }
     } else {
         try {
             DirDelete InstallDir, 1
@@ -132,16 +141,17 @@ Uninstall() {
     ExitApp()
 }
 
-LaunchInstalledAndExit(InstallPath) {
-    ; Use a bat to wait for this process to exit, then launch the installed copy
-    batPath := A_Temp "\launch_yawtl.bat"
-    batContent := "@echo off`r`ntimeout /t 1 /nobreak >nul`r`nstart `"`" `"" InstallPath "`"`r`ndel `"%~f0`""
-    FileOpen(batPath, "w", "cp0").Write(batContent)
-    Run 'cmd.exe /c "' batPath '"',, "Hide"
+LaunchInstalledAndExit(installPath) {
+    try {
+        Run '"' installPath '"'
+    } catch as e {
+        MsgBox "Installation finished, but the installed copy could not be started.`n`n" e.Message, "Install Error", "IconX"
+    }
     ExitApp()
 }
 
 ; ============================================================
+;  GUI - Install Dialog
 ; ============================================================
 
 ShowInstallDialog() {
@@ -208,7 +218,7 @@ ShowInstallDialog() {
 ;  GUI - Success Dialog
 ; ============================================================
 
-ShowSuccessDialog(InstallPath) {
+ShowSuccessDialog(installPath) {
     g := Gui("+AlwaysOnTop -SysMenu", "Installed")
     g.BackColor := "0D1117"
     g.SetFont("s10 cE6EDF3", "Consolas")
@@ -246,8 +256,8 @@ ShowSuccessDialog(InstallPath) {
     MonitorGetWorkArea(, &ml, &mt, &mr, &mb)
     g.Move((mr - ml) // 2 - 190 + ml, (mb - mt) // 2 - 112 + mt)
 
-    btnOK.OnEvent("Click", (*) => (g.Destroy(), LaunchInstalledAndExit(InstallPath)))
-    g.OnEvent("Close",     (*) => (g.Destroy(), LaunchInstalledAndExit(InstallPath)))
+    btnOK.OnEvent("Click", (*) => (g.Destroy(), LaunchInstalledAndExit(installPath)))
+    g.OnEvent("Close",     (*) => (g.Destroy(), LaunchInstalledAndExit(installPath)))
 
     WinWaitClose g.Hwnd
 }
