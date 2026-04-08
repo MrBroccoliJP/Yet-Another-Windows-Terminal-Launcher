@@ -6,7 +6,7 @@
 
 ; @Ahk2Exe-SetName        Yet Another Windows Terminal Launcher
 ; @Ahk2Exe-SetDescription Keyboard shortcuts to launch Windows Terminal
-; @Ahk2Exe-SetVersion     1.1.0
+; @Ahk2Exe-SetVersion     1.1.1
 ; @Ahk2Exe-SetCopyright   Copyright (c) 2026, licensed under GPL v3
 ; @Ahk2Exe-SetCompanyName Joao Fernandes
 ; @Ahk2Exe-SetOrigFilename YetAnotherWindowsTerminalLauncher.exe
@@ -119,7 +119,7 @@ Uninstall() {
     if (A_ScriptFullPath = InstallPath) {
         batPath := A_Temp "\uninstall_wtl.bat"
         batContent := "@echo off`r`ntimeout /t 2 /nobreak >nul`r`nrmdir /s /q `"" InstallDir "`"`r`ndel `"%~f0`""
-        FileOpen(batPath, "w").Write(batContent)
+        FileOpen(batPath, "w", "cp0").Write(batContent)
         Run 'cmd.exe /c "' batPath '"',, "Hide"
     } else {
         try {
@@ -136,7 +136,7 @@ LaunchInstalledAndExit(InstallPath) {
     ; Use a bat to wait for this process to exit, then launch the installed copy
     batPath := A_Temp "\launch_yawtl.bat"
     batContent := "@echo off`r`ntimeout /t 1 /nobreak >nul`r`nstart `"`" `"" InstallPath "`"`r`ndel `"%~f0`""
-    FileOpen(batPath, "w").Write(batContent)
+    FileOpen(batPath, "w", "cp0").Write(batContent)
     Run 'cmd.exe /c "' batPath '"',, "Hide"
     ExitApp()
 }
