@@ -6,7 +6,7 @@
 
 ; @Ahk2Exe-SetName        Yet Another Windows Terminal Launcher
 ; @Ahk2Exe-SetDescription Keyboard shortcuts to launch Windows Terminal
-; @Ahk2Exe-SetVersion     1.1.2
+; @Ahk2Exe-SetVersion     1.2.0
 ; @Ahk2Exe-SetCopyright   Copyright (c) 2026, licensed under GPL v3
 ; @Ahk2Exe-SetCompanyName Joao Fernandes
 ; @Ahk2Exe-SetOrigFilename YetAnotherWindowsTerminalLauncher.exe
@@ -24,8 +24,8 @@ global InstallPath := InstallDir "\" ExeName
 global RegKey      := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 
 ; ── First-run check ──────────────────────────────────────────
-if !IsInstalled()
-    ShowInstallDialog()
+if !IsRunningFromInstallPath()
+    ShowInstallDialog(IsInstalled())
 
 ; ── System Tray ──────────────────────────────────────────────
 A_TrayMenu.Delete()
@@ -58,7 +58,8 @@ return
 
 LaunchNormal() {
     try {
-        Run "wt.exe"
+        userHome := EnvGet("USERPROFILE")
+        Run 'wt.exe -d "' userHome '"'
     } catch as e {
         MsgBox "Could not find or launch Windows Terminal.`n`nMake sure Windows Terminal is installed.`n`n" e.Message, "Error", "IconX"
     }
@@ -68,7 +69,8 @@ LaunchElevated() {
     try {
         ; Using PowerShell Start-Process is more reliable than Run "*RunAs wt.exe"
         ; on systems where the wt.exe execution alias behaves differently under UAC.
-        psCommand := "Start-Process -FilePath 'wt.exe' -Verb RunAs"
+        homeDir := StrReplace(EnvGet("USERPROFILE"), "'", "''")
+        psCommand := "Start-Process -FilePath 'wt.exe' -ArgumentList '-d', (([char]34) + '" homeDir "' + ([char]34)) -Verb RunAs"
         Run A_ComSpec ' /c powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "' psCommand '"',, "Hide"
     } catch as e {
         MsgBox "Could not launch Windows Terminal as Administrator.`n`n" e.Message, "Error", "IconX"
@@ -89,8 +91,42 @@ IsInstalled() {
     }
 }
 
-Install() {
+IsRunningFromInstallPath() {
+    global InstallPath
+    return StrLower(A_ScriptFullPath) = StrLower(InstallPath)
+}
+
+StopInstalledInstance() {
+    global InstallPath
+
+    DetectHiddenWindows true
+    SetTitleMatchMode 1
+
+    installedWindow := WinExist(InstallPath " ahk_class AutoHotkey")
+    if !installedWindow
+        return true
+
+    try {
+        installedPid := WinGetPID(installedWindow)
+        ProcessClose installedPid
+        ; ProcessWaitClose returns 0 once the process is gone, or the PID if it
+        ; still exists when the timeout expires.
+        if !ProcessWaitClose(installedPid, 5)
+            return true
+
+        MsgBox "The running launcher did not stop in time. Please try the update again.", "Update Error", "IconX"
+        return false
+    } catch as e {
+        MsgBox "The running launcher could not be stopped.`n`n" e.Message, "Update Error", "IconX"
+        return false
+    }
+}
+
+Install(isUpdate := false) {
     global InstallDir, InstallPath, RegKey, AppName
+
+    if isUpdate && !StopInstalledInstance()
+        return
 
     if !DirExist(InstallDir)
         DirCreate InstallDir
@@ -111,7 +147,7 @@ Install() {
         return
     }
 
-    ShowSuccessDialog(InstallPath)
+    ShowSuccessDialog(InstallPath, isUpdate)
 }
 
 Uninstall() {
@@ -154,7 +190,7 @@ LaunchInstalledAndExit(installPath) {
 ;  GUI - Install Dialog
 ; ============================================================
 
-ShowInstallDialog() {
+ShowInstallDialog(isUpdate := false) {
     global InstallDir
 
     g := Gui("+AlwaysOnTop -SysMenu", "Windows Terminal Launcher")
@@ -189,16 +225,18 @@ ShowInstallDialog() {
 
     prompt := g.Add("Text", "x30 y188 w420 cE6EDF3 BackgroundTrans")
     prompt.SetFont("s9", "Consolas")
-    prompt.Value := "Install and run automatically at startup?"
+    prompt.Value := isUpdate
+        ? "Update the installed launcher and restart it?"
+        : "Install and run automatically at startup?"
 
     pathLabel := g.Add("Text", "x30 y206 w420 c8B949E BackgroundTrans")
     pathLabel.SetFont("s8", "Consolas")
     pathLabel.Value := "  " InstallDir
 
-    btnInstall := g.Add("Button", "x30 y240 w200 h36", "Install")
+    btnInstall := g.Add("Button", "x30 y240 w200 h36", isUpdate ? "Update" : "Install")
     btnInstall.SetFont("s10 Bold", "Consolas")
 
-    btnSkip := g.Add("Button", "x250 y240 w200 h36", "Run without installing")
+    btnSkip := g.Add("Button", "x250 y240 w200 h36", isUpdate ? "Cancel" : "Run without installing")
     btnSkip.SetFont("s9", "Consolas")
 
     g.Add("Text", "x0 y285 w480 h10 BackgroundTrans", "")
@@ -207,9 +245,9 @@ ShowInstallDialog() {
     MonitorGetWorkArea(, &ml, &mt, &mr, &mb)
     g.Move((mr - ml) // 2 - 240 + ml, (mb - mt) // 2 - 148 + mt)
 
-    btnInstall.OnEvent("Click", (*) => (g.Destroy(), Install()))
-    btnSkip.OnEvent("Click",    (*) => g.Destroy())
-    g.OnEvent("Close",          (*) => g.Destroy())
+    btnInstall.OnEvent("Click", (*) => (g.Destroy(), Install(isUpdate)))
+    btnSkip.OnEvent("Click",    (*) => isUpdate ? ExitApp() : g.Destroy())
+    g.OnEvent("Close",          (*) => isUpdate ? ExitApp() : g.Destroy())
 
     WinWaitClose g.Hwnd
 }
@@ -218,20 +256,20 @@ ShowInstallDialog() {
 ;  GUI - Success Dialog
 ; ============================================================
 
-ShowSuccessDialog(installPath) {
+ShowSuccessDialog(installPath, isUpdate := false) {
     g := Gui("+AlwaysOnTop -SysMenu", "Installed")
     g.BackColor := "0D1117"
     g.SetFont("s10 cE6EDF3", "Consolas")
 
     g.Add("Progress", "x0 y0 w380 h3 Background238636 c238636", 100)
 
-    check := g.Add("Text", "x0 y18 w380 +Center c238636 BackgroundTrans")
+    check := g.Add("Text", "x0 y18 w380 h36 +Center c238636 BackgroundTrans")
     check.SetFont("s22 Bold", "Consolas")
     check.Value := "OK"
 
     title := g.Add("Text", "x0 y54 w380 +Center cE6EDF3 BackgroundTrans")
     title.SetFont("s11 Bold", "Consolas")
-    title.Value := "Installation complete!"
+    title.Value := isUpdate ? "Update complete!" : "Installation complete!"
 
     desc := g.Add("Text", "x20 y82 w340 +Center c8B949E BackgroundTrans")
     desc.SetFont("s9", "Consolas")

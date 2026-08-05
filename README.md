@@ -11,10 +11,13 @@ A lightweight AutoHotkey v2 utility that adds global keyboard shortcuts for laun
 | `Ctrl + Alt + T` | Launch Windows Terminal |
 | `Ctrl + Alt + Shift + T` | Launch Windows Terminal as Administrator |
 
+New terminals open in the current user's home directory.
+
 ## Features
 
 - **First-run installer** — on first launch, prompts you to install the app and register it as a startup program (no admin rights required)
 - **Runs at startup** — registers itself under `HKCU\...\Run` so it starts silently with Windows
+- **In-place updates** — running a new copy detects the installation, offers to update it, stops the old instance, and restarts the replacement
 - **System tray** — lives in the tray, out of your way; right-click for options
 - **Uninstaller built-in** — removes itself cleanly via the tray menu
 - **Dark themed GUI** — custom dialogs styled to match Windows Terminal's aesthetic
